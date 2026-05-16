@@ -34,7 +34,6 @@
             border-radius: 8px;
             border-left: 4px solid #9e2a2a;
         }
-        .counter-top { margin: 0 0 15px 0; }
         .stats {
             display: flex;
             gap: 25px;
@@ -122,20 +121,37 @@
             историю, техническое описание и маршрут как до них можно добраться.
         </div>
         
-        <div class="counter-top">
-           <a href="https://www.liveinternet.ru/click" target="_blank">
-               <img id="licntA113" width="88" height="120" style="border:0" 
-               title="LiveInternet: показано количество просмотров и посетителей"
-               src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAEALAAAAAABAAEAAAIBTAA7" alt=""/>
-           </a>
-           <script>
-               (function(d,s){
-                   d.getElementById("licntA113").src = "https://counter.yadro.ru/hit?t28.9;r"+escape(d.referrer)+
-                   ((typeof(s)=="undefined")?"":";s"+s.width+"*"+s.height+"*"+
-                   (s.colorDepth?s.colorDepth:s.pixelDepth))+";u"+escape(d.URL)+
-                   ";h"+escape(d.title.substring(0,150))+";"+Math.random();
-               })(document,screen);
-           </script>
+        <!-- ============================================================ -->
+        <!-- БЛОК ИИ-СПРАВОЧНИКА ПО ГЭС (вместо счётчика и чат-бота)       -->
+        <!-- ============================================================ -->
+        <div style="background: #1a1a2e; color: white; border-radius: 16px; padding: 20px; margin: 15px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.2);">
+            <h3 style="margin: 0 0 5px 0; display: flex; align-items: center; gap: 10px;">
+                <span>⚡</span> 
+                <span>ИИ-эксперт по гидроэнергетике</span>
+            </h3>
+            <p style="font-size: 14px; opacity: 0.8; margin-bottom: 15px;">
+                Спросите про историю ГЭС, их устройство, мощность или как до них добраться.
+            </p>
+            
+            <div style="display: flex; gap: 10px; margin: 15px 0; flex-wrap: wrap;">
+                <input type="text" id="aiQuestion" placeholder="Например: какая ГЭС самая мощная?" style="flex: 1; padding: 12px 18px; border-radius: 40px; border: none; font-size: 15px;">
+                <button id="askAiBtn" style="background: #4a6fa5; color: white; border: none; padding: 12px 28px; border-radius: 40px; cursor: pointer; font-weight: bold;">✨ Спросить ИИ</button>
+            </div>
+            
+            <div id="aiThinking" style="display: none; text-align: center; padding: 20px;">
+                🤔 ИИ анализирует вопрос... 
+            </div>
+            
+            <div id="aiAnswerBox" style="background: #16213e; border-radius: 16px; padding: 18px; margin-top: 10px; display: none; border-left: 5px solid #4a6fa5;">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                    <strong style="font-size: 16px;">🤖 Ответ ИИ-эксперта:</strong>
+                    <button onclick="closeAnswer()" style="background: none; border: none; color: #aaa; font-size: 20px; cursor: pointer;">✖</button>
+                </div>
+                <div id="aiAnswerText" style="line-height: 1.5; font-size: 15px;"></div>
+                <div style="font-size: 11px; color: #6c8db0; margin-top: 12px; border-top: 1px solid #1e2a47; padding-top: 8px;">
+                    ⚡ Ответ сгенерирован нейросетью YandexGPT
+                </div>
+            </div>
         </div>
         
         <div class="stats" id="statsPanel">
@@ -172,7 +188,73 @@
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     
     <script>
-        // ДАННЫЕ О ГЭС
+        // ============================================================
+        // ИИ-СПРАВОЧНИК (работает через ваш прокси на Render)
+        // ============================================================
+        const PROXY_URL = "https://yandex-gpt-proxy.onrender.com/ask";
+        
+        // 👇 ПРОМПТ ДЛЯ ЭКСПЕРТА ПО ГЭС
+        const SYSTEM_PROMPT = "Ты эксперт по гидроэнергетике и малым гидроэлектростанциям (ГЭС). Отвечай на русском кратко и понятно. Рассказывай про историю, устройство, мощность, причины закрытия. Если спрашивают про конкретную ГЭС — давай факты из истории и технические характеристики (год постройки, мощность, что осталось).";
+        
+        async function askRealAI(question) {
+            try {
+                const response = await fetch(PROXY_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        question: question,
+                        system_prompt: SYSTEM_PROMPT
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error("Ошибка прокси:", response.status, errorText);
+                    return `❌ Ошибка сервера (${response.status}). Попробуйте позже.`;
+                }
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    return `❌ Ошибка: ${data.error}`;
+                }
+                
+                return data.answer || "Не удалось получить ответ.";
+            } catch (error) {
+                console.error("Сетевая ошибка:", error);
+                return "❌ Ошибка соединения с сервером. Проверьте интернет и попробуйте снова.";
+            }
+        }
+        
+        // Обработчик кнопки ИИ
+        document.getElementById('askAiBtn').onclick = async function() {
+            const question = document.getElementById('aiQuestion').value.trim();
+            if (!question) {
+                alert('Напишите вопрос!');
+                return;
+            }
+            
+            document.getElementById('aiThinking').style.display = 'block';
+            document.getElementById('aiAnswerBox').style.display = 'none';
+            
+            const answer = await askRealAI(question);
+            
+            document.getElementById('aiAnswerText').innerHTML = answer.replace(/\n/g, '<br>');
+            document.getElementById('aiAnswerBox').style.display = 'block';
+            document.getElementById('aiThinking').style.display = 'none';
+        };
+        
+        function closeAnswer() {
+            document.getElementById('aiAnswerBox').style.display = 'none';
+        }
+        
+        document.getElementById('aiQuestion').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') document.getElementById('askAiBtn').click();
+        });
+        
+        // ============================================================
+        // ДАННЫЕ О ГЭС И КАРТА
+        // ============================================================
         var mgesData = [
             {
                 id: 1,
@@ -255,25 +337,19 @@
         var currentMarkers = [];
         var currentSearchTerm = "";
         
-        // Инициализация карты с использованием свободных тайлов (работает в России)
         function initMap() {
-            // Отключаем атрибуцию Leaflet
             map = L.map('map', {
                 attributionControl: false
             }).setView([59.5, 30.5], 8);
             
-            // Используем тайлы от OpenStreetMap через зеркало, работающее в РФ
-            // Или можно использовать карты от Humanitarian OpenStreetMap Team
             L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
                 maxZoom: 19,
                 attribution: ''
             }).addTo(map);
             
-            // Добавляем простой масштаб
             L.control.scale({ metric: true, imperial: false }).addTo(map);
         }
         
-        // Обновление счётчиков
         function updateStats() {
             var total = mgesData.length;
             var abandoned = 0;
@@ -289,7 +365,6 @@
             document.getElementById('restoredCount').textContent = restored;
         }
         
-        // Показать подробности
         function showDetails(id) {
             var station = null;
             for (var i = 0; i < mgesData.length; i++) {
@@ -328,7 +403,6 @@
             document.getElementById('sidebar').classList.remove('open');
         }
         
-        // Отрисовка маркеров
         function renderMarkers() {
             for (var i = 0; i < currentMarkers.length; i++) {
                 map.removeLayer(currentMarkers[i]);
@@ -377,7 +451,6 @@
             renderMarkers();
         }
         
-        // Запуск при загрузке страницы
         document.addEventListener('DOMContentLoaded', function() {
             initMap();
             updateStats();
@@ -393,13 +466,11 @@
             }, 200);
         });
         
-        // Дата в футере
         document.getElementById('lastUpdate').textContent = new Date().toLocaleString('ru-RU', {
             day: 'numeric',
             month: 'long',
             year: 'numeric'
         });
     </script>
-    <script src="chatbot-local.js"></script>
 </body>
 </html>
